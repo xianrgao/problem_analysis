@@ -38,10 +38,10 @@ class Database:
         """)
         self.connection.commit()
 
-    def put(self, kind, value):
+    def put(self, kind, value, key=None):
         with self.lock, self.connection:
             self.connection.execute("INSERT OR REPLACE INTO objects VALUES(?,?,?)",
-                                    (kind, value["id"], json.dumps(value, ensure_ascii=False)))
+                                    (kind, key or value["id"], json.dumps(value, ensure_ascii=False, default=str)))
         return value
 
     def get(self, kind, id):
@@ -61,7 +61,7 @@ class Database:
             value = self.get(kind, id)
             value.update(updates)
             value["updated_at"] = now()
-            return self.put(kind, value)
+            return self.put(kind, value, key=id)
 
     def message(self, session_id, role, content):
         value = {"id": uid("msg_"), "role": role, "content": content, "created_at": now()}

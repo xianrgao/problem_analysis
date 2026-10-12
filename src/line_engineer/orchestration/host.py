@@ -16,6 +16,7 @@ TOOLS = {
     "skill.reference": "参数 path，读取当前skill的具体references或scripts文件。",
     "mos.query": "参数 question、可选sql/name；MOS子agent写SQL，实际查询后保存全量表格并返回变量描述。",
     "splunk.query": "参数 kind(bindings/changes/logs)、filters、可选name；保存查询数据。",
+    "curves.query": "参数 filters(station_id/kind/phase/result/tgs/start/end)、可选name；保存过程曲线长表。",
     "python.execute": "参数 code；执行Python代码。ctx.vars.load(name)读全量，ctx.vars.save(name,value,description,kind)写变量。",
     "chart.create": "参数 variable,kind(auto/line/bar/box/scatter/histogram),x,y,group；基于全量变量制作图表。",
     "issue.update": "参数 issue_id,fields；更新问题台账证据与措施，关闭需用户在台账确认。",
@@ -32,13 +33,12 @@ class Host:
 
     def context(self, sid):
         app = self.app
-        plans = [p for p in app.db.all("plan") if p["session_id"] == sid]
         return {"skills": app.registry.discover(), "host_capabilities": self.capabilities(),
-                "active_plan": plans[-1] if plans else None,
+                "active_plan": app.active_plan(sid),
                 "variable_index": [app.variables.public(v) for v in app.variables.list(sid)]}
 
-    def save(self, sid, name, value, description, kind=None, node=None, parents=None):
-        return self.app.variables.save(sid, name, value, description, kind, {"mode": self.app.db.get("session", sid)["mode"]}, node, parents)
+    def save(self, sid, name, value, description, kind=None, node=None, parents=None, metadata=None):
+        return self.app.variables.save(sid, name, value, description, kind, {"mode": self.app.db.get("session", sid)["mode"], **(metadata or {})}, node, parents)
 
     async def call(self, sid, tool, args, skill=None, version=None, run=None, node=None):
         app = self.app
@@ -68,7 +68,16 @@ class Host:
             else:
                 frame = await asyncio.to_thread(invoke, cfg, args)
             meta = self.save(sid, args.get("name", "first_bindings" if args.get("kind", "bindings") == "bindings" else "equipment_changes"), frame,
-                             f"Splunk {args.get('kind', 'bindings')} 查询结果，包含绑定或事件历史", node=node)
+                             args.get("description") or f"Splunk {args.get('kind', 'bindings')} 查询结果，包含绑定或事件历史", node=node)
+            return {"variable_name": meta["name"], "row_count": meta["row_count"], "description": meta["description"], "version": meta["version"]}
+        if tool == "curves.query":
+            cfg = app.settings.values.get("connectors", {}).get("curves", {"driver": "demo"})
+            if cfg["driver"] == "demo":
+                from ..domain.sources import DemoCurves
+                frame = await asyncio.to_thread(DemoCurves(app.demo_dir).query, args.get("filters", {}))
+            else:
+                frame = await asyncio.to_thread(invoke, cfg, args)
+            meta = self.save(sid, args.get("name", "process_curves"), frame, args.get("description", "过程曲线逐点长表，包含曲线标识、阶段、坐标、单位及判定分组"), node=node)
             return {"variable_name": meta["name"], "row_count": meta["row_count"], "description": meta["description"], "version": meta["version"]}
         if tool == "python.execute":
             code = args["code"]
@@ -84,7 +93,8 @@ class Host:
             meta = app.variables.describe(sid, name)
             frame = app.variables.load(sid, name, meta["version"])
             figure = await asyncio.to_thread(make_chart, frame, args.get("kind", "auto"), args.get("x"), args.get("y"), args.get("group"))
-            output = self.save(sid, uid("chart_"), figure, f"{name} 的{args.get('kind', 'auto')}图表", "chart", node, [{"name": name, "version": meta["version"]}])
+            chart = {"variable": name, **{k: args.get(k) for k in ("kind", "x", "y", "group", "category") if args.get(k)}}
+            output = self.save(sid, uid("chart_"), figure, args.get("description") or f"{name} 的{args.get('kind', 'auto')}图表", "chart", node, [{"name": name, "version": meta["version"]}], {"chart": chart})
             return app.variables.public(output)
         if tool == "issue.update":
             fields = args["fields"]

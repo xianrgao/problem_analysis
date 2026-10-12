@@ -2,7 +2,7 @@
 
 面向现场工程师的本地问题分析工作台，通过技能、子 agent 和可追溯变量组织取数、统计、曲线分析、图表与问题闭环。
 
-> 当前是开发中的源码快照，尚未完成前后端整体验收。已完成与待完成内容见 [开发状态](docs/development-status.md)，完整设计见 [实施计划](docs/implementation-plan.md)。
+> 当前是开发中的源码快照，后端编排、API 与前端构建已接通，尚未完成浏览器视觉验收与真实模型接入验收。已完成与待完成内容见 [开发状态](docs/development-status.md)，完整设计见 [实施计划](docs/implementation-plan.md)。
 
 ## 项目结构
 
@@ -12,16 +12,25 @@
 - `tests/`：自动验证用例。
 - `docs/`：完整方案、开发状态与后续迁移文档。
 
+## 启动
+
+```powershell
+python -m pip install -e ".[test]"
+cd web; npm ci; npm run build; cd ..
+python main.py serve --open
+```
+
+服务地址为 `http://127.0.0.1:8765`。首次启动生成 90 天模拟数据；`python main.py init-demo` 可单独生成。应用数据默认保存在 `data/`，可用 `--data-dir` 或 `LINE_ENGINEER_DATA` 指定。前端开发时可运行 `npm run dev`，`/api` 代理到本机服务。
+
 ## 当前验证
 
 Python 领域分析测试已通过：
 
 ```powershell
-python -m pip install -e ".[test]"
 python -m pytest tests/test_domain.py -q
 ```
 
-当前已覆盖模拟数据关联、只读 SQL、班次边界、首次绑定、安全重写、批次分母与曲线数据质量等 18 项测试。
+当前已覆盖模拟数据关联、只读 SQL、班次边界、首次绑定、安全重写、批次分母与曲线数据质量等 18 项测试。编排与 API 的端到端验证情况见 [开发状态](docs/development-status.md)。
 
 ## 运行与迁移目标
 
