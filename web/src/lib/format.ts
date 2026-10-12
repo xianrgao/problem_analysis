@@ -1,0 +1,7 @@
+export function timeLabel(value?: string) { if (!value) return ''; const date = new Date(value.endsWith('Z') || /[+-]\d\d:\d\d$/.test(value) ? value : value + 'Z'); return Number.isNaN(+date) ? value : date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' }); }
+export function dateLabel(value?: string) { if (!value) return ''; const date = new Date(value); return Number.isNaN(+date) ? value : date.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit', timeZone: 'Asia/Shanghai' }); }
+export function displayValue(value: unknown): string { if (value === null || value === undefined) return '—'; return typeof value === 'object' ? JSON.stringify(value) : String(value); }
+export const statusLabels: Record<string, string> = { idle: '待开始', planning: '规划中', running: '执行中', queued: '排队中', awaiting_approval: '待确认', pending: '待确认', draft: '待确认', approved: '已批准', completed: '已完成', failed: '受阻', blocked: '受阻', cancelled: '已停止', paused: '已暂停', interrupted: '待恢复', open: '待调查', investigating: '调查中', acting: '措施实施', verifying: '验证中', closed: '已关闭' };
+export function statusLabel(value: string) { return statusLabels[value] || value; }
+export function isActive(status?: string) { return ['running', 'queued', 'planning'].includes(status || ''); }
+export function isPending(status?: string) { return ['pending', 'draft', 'awaiting_approval'].includes(status || ''); }

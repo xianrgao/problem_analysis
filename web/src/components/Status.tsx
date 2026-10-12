@@ -1,0 +1,3 @@
+import { Check, LoaderCircle, Pause, TriangleAlert } from 'lucide-react';
+import { statusLabel } from '../lib/format';
+export function Status({ value, compact = false }: { value: string; compact?: boolean }) { const running = value === 'running' || value === 'queued'; return <span className={`status status-${value} ${compact ? 'compact' : ''}`}>{running ? <LoaderCircle size={12} className="spin"/> : value === 'completed' ? <Check size={12}/> : value === 'failed' ? <TriangleAlert size={12}/> : ['paused','cancelled','interrupted'].includes(value) ? <Pause size={11}/> : <span className="status-dot"/>}{!compact && statusLabel(value)}</span>; }

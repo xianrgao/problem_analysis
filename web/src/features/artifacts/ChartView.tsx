@@ -1,0 +1,7 @@
+import { useEffect, useRef, useState } from 'react';
+import type { ChartData } from '../../lib/types';
+export function ChartView({ figure }: { figure: ChartData }) {
+  const node = useRef<HTMLDivElement>(null); const [error, setError] = useState('');
+  useEffect(() => { let disposed = false; let cleanup = () => {}; import('plotly.js-basic-dist-min').then(async ({ default: Plotly }) => { if (!node.current || disposed) return; const el = node.current; try { await Plotly.react(el, figure.data || [], { ...figure.layout, autosize: true, width: undefined, height: 360, paper_bgcolor: '#ffffff', plot_bgcolor: '#ffffff', colorway: ['#3569db', '#ec8463', '#36a6a0', '#877bc4', '#d0a048'], font: { family: 'Segoe UI, Microsoft YaHei, sans-serif', size: 11, color: '#596479' }, margin: { l: 55, r: 20, t: 46, b: 54 }, legend: { orientation: 'h', y: -0.2 } }, { responsive: true, displaylogo: false, modeBarButtonsToRemove: ['lasso2d','select2d'], toImageButtonOptions: { format: 'png', filename: 'linea-analysis', scale: 2 } }); const observer = new ResizeObserver(() => Plotly.Plots.resize(el)); observer.observe(el); cleanup = () => { observer.disconnect(); Plotly.purge(el); }; if (disposed) cleanup(); } catch (failure) { if (!disposed) setError(String(failure)); } }).catch(failure => setError(String(failure))); return () => { disposed = true; cleanup(); }; }, [figure]);
+  return error ? <div className="inline-error">图表加载失败：{error}</div> : <div className="plotly-chart" ref={node}/>;
+}
