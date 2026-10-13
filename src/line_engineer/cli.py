@@ -1,8 +1,24 @@
 """Command line entry: serve the local workbench or prepare demo data."""
 from __future__ import annotations
 import argparse
+import threading
+import time
+import urllib.request
 import webbrowser
 from pathlib import Path
+
+
+def open_when_ready(port: int, timeout: float = 60):
+    """Open the browser only after the service answers, so the first page is not an error."""
+    url = f"http://127.0.0.1:{port}"
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(f"{url}/api/health", timeout=2):
+                break
+        except OSError:
+            time.sleep(0.5)
+    webbrowser.open(url)
 
 
 def main(argv=None):
@@ -27,7 +43,7 @@ def main(argv=None):
     from .api.server import create_app
     port = getattr(args, "port", 8765)
     if getattr(args, "open", False):
-        webbrowser.open(f"http://127.0.0.1:{port}")
+        threading.Thread(target=open_when_ready, args=(port,), daemon=True).start()
     # Local single-user service: bind loopback only.
     uvicorn.run(create_app(application), host="127.0.0.1", port=port, log_level="info")
 

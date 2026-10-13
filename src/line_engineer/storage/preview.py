@@ -28,7 +28,8 @@ def make_preview(frame: pd.DataFrame, name: str, version: int):
             if category not in existing and len(selected) < min(size, 40):
                 selected.append(int(rng.choice(np.asarray(indices))))
                 existing.add(category)
-    target = min(size, max(30, len(selected)))
+    # Small tables (up to the 40-row ceiling) are shown completely.
+    target = size if size <= 40 else min(size, max(30, len(selected)))
     if len(selected) < target:
         available = np.setdiff1d(np.arange(size), np.array(selected, dtype=int))
         selected.extend(int(i) for i in rng.choice(available, target - len(selected), replace=False))
@@ -36,6 +37,14 @@ def make_preview(frame: pd.DataFrame, name: str, version: int):
     for col in columns:
         count = int(encoded[col["name"]].iloc[selected].nunique())
         covered[col["name"]] = {"represented": count, "total": col["distinct"], "complete": count == col["distinct"]}
-    return {"variable_name": f"{name}_preview", "source_variable": name, "source_version": version,
-            "total_rows": size, "columns": columns, "rows": records(sample), "coverage": covered,
+    return {"variable_name": f"{name}_preview", "source_variable": name, "source_version": version, "available": True,
+            "complete": len(selected) == size, "total_rows": size, "columns": columns, "rows": records(sample), "coverage": covered,
             "description": f"{name} 第 {version} 版的代表性预览；统计分析应读取全量数据。"}
+
+
+def unavailable_preview(frame: pd.DataFrame, name: str, version: int, error: Exception):
+    """Explicit marker so an older preview is never mistaken for the current one."""
+    return {"variable_name": f"{name}_preview", "source_variable": name, "source_version": version, "available": False,
+            "complete": False, "error": f"{type(error).__name__}: {error}"[:500], "total_rows": len(frame),
+            "columns": [{"name": str(c), "dtype": str(frame[c].dtype)} for c in frame.columns], "rows": [], "coverage": {},
+            "description": f"{name} 第 {version} 版的预览生成失败，当前不可用；请通过代码读取全量数据核对结构。"}

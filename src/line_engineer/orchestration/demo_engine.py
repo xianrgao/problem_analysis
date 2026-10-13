@@ -152,7 +152,7 @@ import pandas as pd
 from line_engineer.domain.curves import analyze_curves
 
 curves = ctx.vars.load(PARAMS["inputs"]["curves"])
-result = analyze_curves(curves, alignment="contact")
+result = analyze_curves(curves, alignment="contact", profiles=PARAMS.get("profiles"))
 tables = result["tables"]
 descriptions = {
     "features": ("curve_features", "每条曲线的峰值、峰值位置、终点、最大斜率及波动等特征"),
@@ -193,16 +193,31 @@ def pct(value):
     return "—" if value is None else f"{value:.2%}"
 
 
+def startup_label(rules):
+    minutes = int(rules.get("startup_window_minutes", 60))
+    return "开班首小时" if minutes == 60 else f"开班首 {minutes} 分钟"
+
+
 class DemoEngine:
     def __init__(self, app):
         self.app = app
 
     # ---- scope ---------------------------------------------------------
+    def analysis_config(self):
+        rules = {k: v for k, v in self.app.rules().items() if k != "curve_profiles"}
+        return {**rules, "exit_station": rules.get("exit_station") or SCENARIO["exit_station"]}
+
+    def shift_hours(self):
+        rules = self.app.rules()
+        start, length = int(rules.get("shift_start_hour", 7)), int(rules.get("shift_hours", 12))
+        return start, length, sorted({(start + length * i) % 24 for i in range(max(1, 24 // length))})
+
     def anchor(self):
         manifest = self.app.manifest or self.app.prepare_demo()
         last = datetime.fromisoformat(manifest["end"])
         boundary = last.replace(minute=0, second=0, microsecond=0)
-        while boundary <= last or boundary.hour not in (7, 19):
+        starts = self.shift_hours()[2]
+        while boundary <= last or boundary.hour not in starts:
             boundary += timedelta(hours=1)
         return boundary
 
@@ -239,13 +254,14 @@ class DemoEngine:
         shift = f"，仅{SHIFTS[scope['shift']]}" if scope.get("shift") else ""
         return f"{scope['station']} {station['name']} · {station['parameter']}，{label(scope['start'])} 至 {label(scope['end'])}（{scope['days']} 天{shift}）"
 
-    @staticmethod
-    def _shift_sql(column, shift):
+    def _shift_sql(self, column, shift):
         hour = f"substr({column}, 12, 2)"
+        start, length, _ = self.shift_hours()
+        day_start, day_end = f"{start:02d}", f"{(start + length) % 24:02d}"
         if shift == "night":
-            return f"\n  AND ({hour} >= '19' OR {hour} < '07')"
+            return f"\n  AND ({hour} >= '{day_end}' OR {hour} < '{day_start}')"
         if shift == "day":
-            return f"\n  AND {hour} >= '07' AND {hour} < '19'"
+            return f"\n  AND {hour} >= '{day_start}' AND {hour} < '{day_end}'"
         return ""
 
     def nc_sql(self, scope):
@@ -277,7 +293,7 @@ class DemoEngine:
         text = content
         chart = next((kind for word, kind in CHART_WORDS.items() if word in text), None)
         if chart and re.search(r"改成|换成|改为|改用|画成|做成", text):
-            return self._chart_change(sid, chart)
+            return self._chart_change(sid, chart, text)
         if re.search(r"台账|问题跟踪|跟踪记录|登记问题|建立问题", text):
             return self._issue(sid, text, memory)
         pending = self.app.active_plan(sid)
@@ -352,7 +368,7 @@ class DemoEngine:
         return self._node(id, "skill", "curve-analysis", "对比 OK 与 NC 过程曲线", f"{scope['station']} {station['name']}的{station['label']}过程曲线，按接触点对齐后比较特征与异常区段",
                           "曲线特征表、异常区段及对齐曲线图",
                           f"为确认不良件在{station['label']}过程中的差异区段，正在调取 {scope['station']} 的合格与不合格过程曲线，按接触点对齐后比较峰值、斜率与偏离区段。",
-                          {"action": "curves", "station": scope["station"], "kind": station["curve_kind"]}, depends)
+                          {"action": "curves", "station": scope["station"], "kind": station["curve_kind"], "profiles": self.app.rules().get("curve_profiles", {})}, depends)
 
     def investigation_plan(self, scope):
         s = SCENARIO["stations"][scope["station"]]
@@ -381,10 +397,10 @@ class DemoEngine:
                        "开班分布、班产分类、滞留清单、日趋势、批次集中度及更新后的 NC 明细",
                        "为找出开班、班产、滞留、趋势和批次方面的集中规律，正在对 NC、过站、检测及绑定全量数据执行统计，并将首次绑定信息写回 NC 明细。",
                        {"action": "analysis", "template": "patterns", "inputs": {"nc": "nc_records", "visits": "visit_records", "measurements": "measurement_trend", "bindings": "first_bindings"},
-                        "config": {"exit_station": SCENARIO["exit_station"]}}, ["p1", "p2", "p3", "p6"]),
+                        "config": self.analysis_config()}, ["p1", "p2", "p3", "p6"]),
             self._node("p8", "skill", "problem-analysis", "复核规律与假设", "汇总各方向检查结果，区分观察事实、关联线索与待验证假设", "规律挖掘结论与深入验证方向",
                        "为判断规律挖掘是否已回答原问题，正在汇总各方向的统计证据与设备资料，区分事实、关联线索和待验证假设。",
-                       {"action": "review", "station": scope["station"]}, ["p4", "p7"]),
+                       {"action": "review", "station": scope["station"], "config": self.analysis_config()}, ["p4", "p7"]),
         ]
         return {"title": f"{scope['station']} {s['label']} NC 规律挖掘", "stage": "investigation", "nodes": nodes,
                 "summary": f"调查范围：{where}。先明确不良规模，再检查开班、班产、滞留、近 {SCENARIO['trend_days']} 天趋势、设备结构和零件批次集中度；深入验证将依据本阶段证据另行确认。"}
@@ -405,7 +421,7 @@ class DemoEngine:
                 self._node("v3", "skill", "data-analysis", "比较批次风险", "比较各批次／供应商的投入量、不良率、风险比和检测值分布", "批次风险表、检测值分布及图表",
                            f"为确认批次集中是否对应更高风险，正在对比不同批次与供应商的投入量、不良率及{s['label']}分布。",
                            {"action": "analysis", "template": "batch", "inputs": {"measurements": "scope_measurements", "bindings": "scope_bindings"},
-                            "component": s["component"], "unit": "kN" if s["curve_kind"] == "press" else "N·m", "config": {"exit_station": SCENARIO["exit_station"]}}, ["v1", "v2"]),
+                            "component": s["component"], "unit": "kN" if s["curve_kind"] == "press" else "N·m", "config": self.analysis_config()}, ["v1", "v2"]),
             ]
             review_deps.append("v3")
         nodes.append(self._curve_node("v4", scope, []))
@@ -490,9 +506,9 @@ class DemoEngine:
             trend = f.get("trend") or {}
             parts = [f"{f['nc_pieces']:,} 件不良工件、{f['nc_events']:,} 条 NC 事件"]
             if f.get("startup_pieces") is not None and f["nc_pieces"]:
-                parts.append(f"开班首小时上线 {f['startup_pieces']:,} 件（{f['startup_pieces'] / f['nc_pieces']:.1%}）")
+                parts.append(f"{startup_label(p['config'])}上线 {f['startup_pieces']:,} 件（{f['startup_pieces'] / f['nc_pieces']:.1%}）")
             if f.get("long_dwell_pieces") is not None:
-                parts.append(f"跨工站间隔超过 4 小时 {f['long_dwell_pieces']:,} 件")
+                parts.append(f"跨工站间隔超过 {p['config']['long_dwell_hours']} 小时 {f['long_dwell_pieces']:,} 件")
             if trend:
                 parts.append(f"周不良率由 {pct(trend['early_rate'])} 变为 {pct(trend['recent_rate'])}，形态为{trend['shape']}")
             strong = [c for c in f.get("strong_concentration", []) if c["dimension"] == "batch"]
@@ -514,7 +530,7 @@ class DemoEngine:
                                                        "description": f"{p['station']} {p['kind']} 过程曲线逐点长表，含曲线 ID、TG、阶段、坐标、单位、判定、批次与供应商"})
         if not query["row_count"]:
             return {"message": f"曲线源中没有 {p['station']} 的过程曲线，未生成或还原任何曲线。", "outputs": [query["variable_name"]]}
-        code = HEADER.format(params=json.dumps({"inputs": {"curves": query["variable_name"]}}, ensure_ascii=False)) + CURVES
+        code = HEADER.format(params=json.dumps({"inputs": {"curves": query["variable_name"]}, "profiles": p.get("profiles", {})}, ensure_ascii=False)) + CURVES
         result = await self._call(ctx, "python.execute", {"code": code})
         f = self._load(ctx, "curve_findings")
         groups = {g["result"]: g for g in f.get("groups", [])}
@@ -546,17 +562,18 @@ class DemoEngine:
 
     async def _do_review(self, ctx, p, node):
         f = self._load(ctx, "pattern_findings")
+        rules = p.get("config") or self.analysis_config()
         station = SCENARIO["stations"][p["station"]]
         equipment = md_table(self._load(ctx, f"equipment_knowledge_{p['station']}"))
         trend = f.get("trend") or {}
         lines = [f"## 规律挖掘结果 · {p['station']} {station['label']}", "",
                  f"- **不良规模**：{f['nc_pieces']:,} 件不良工件、{f['nc_events']:,} 条 NC 事件（变量 `nc_records`）。"]
         if f.get("startup_pieces") is not None and f["nc_pieces"]:
-            lines.append(f"- **开班**：{f['startup_pieces']:,} 件在开班首小时上线，占 {f['startup_pieces'] / f['nc_pieces']:.1%}；仅为 NC 构成，需与同期投入比例对照（`startup_distribution`）。")
+            lines.append(f"- **开班**：{f['startup_pieces']:,} 件在{startup_label(rules)}上线，占 {f['startup_pieces'] / f['nc_pieces']:.1%}；仅为 NC 构成，需与同期投入比例对照（`startup_distribution`）。")
         if f.get("shift_classes"):
             lines.append("- **班产**：不良工件所在班次分类 " + "、".join(f"{k} {v} 件" for k, v in f["shift_classes"].items()) + "（`nc_shift_context`）。")
         if f.get("long_dwell_pieces") is not None:
-            lines.append(f"- **滞留**：{f['long_dwell_pieces']:,} 件存在超过 4 小时的跨工站间隔，需结合停线与返工记录核实（`long_dwell`）。")
+            lines.append(f"- **滞留**：{f['long_dwell_pieces']:,} 件存在超过 {rules['long_dwell_hours']} 小时的跨工站间隔，需结合停线与返工记录核实（`long_dwell`）。")
         if trend:
             jump = trend.get("largest_jump")
             lines.append(f"- **趋势**：周不良率由 {pct(trend['early_rate'])} 变为 {pct(trend['recent_rate'])}，形态为“{trend['shape']}”"
@@ -646,11 +663,28 @@ class DemoEngine:
         self.app.orchestrator.remember(sid, stage="verification_completed")
         return self.app.variables.load(sid, "investigation_conclusion"), None, None
 
-    def _chart_change(self, sid, kind):
+    @staticmethod
+    def resolve_chart(charts, text):
+        """Resolve "the chart just now" to one chart version; several equally recent charts need clarification."""
+        explicit = [c for c in charts if c["name"] in text] or [c for c in charts if c["metadata"]["chart"]["variable"] in text] \
+            or [c for c in charts if len(title := re.sub(r"（.*?）|\(.*?\)", "", c["description"]).strip()) >= 4 and title in text]
+        if explicit:
+            return max(explicit, key=lambda v: v["created_at"]), []
+        latest = max(charts, key=lambda v: v["created_at"])
+        stamp = datetime.fromisoformat(latest["created_at"])
+        recent = [c for c in charts if c.get("producer") == latest.get("producer")
+                  and abs((datetime.fromisoformat(c["created_at"]) - stamp).total_seconds()) < 5]
+        return (latest, []) if len(recent) <= 1 else (None, sorted(recent, key=lambda v: v["created_at"]))
+
+    def _chart_change(self, sid, kind, text=""):
         charts = [v for v in self.app.variables.list(sid) if v["kind"] == "chart" and (v.get("metadata") or {}).get("chart")]
         if not charts:
             return {"type": "answer", "message": "当前会话还没有可调整的图表，请先完成相关分析。"}
-        latest = max(charts, key=lambda v: v["created_at"])
+        latest, candidates = self.resolve_chart(charts, text)
+        if latest is None:
+            options = "\n".join(f"- `{c['name']}` v{c['version']}：{c['description']}" for c in candidates)
+            return {"type": "ask", "message": f"上一步同时生成了 {len(candidates)} 张图表，需要明确调整哪一张：\n\n{options}\n\n"
+                                                f"可回复例如“把 {candidates[0]['name']} 改成{next(w for w, k in CHART_WORDS.items() if k == kind)}”。"}
         meta = latest["metadata"]["chart"]
         args = {"variable": meta["variable"], "kind": kind, "y": meta.get("y")}
         if kind in ("box", "violin", "histogram"):
@@ -665,6 +699,18 @@ class DemoEngine:
         return {"type": "direct", "origin": "demo", "nodes": [node]}
 
     def _issue(self, sid, text, memory):
+        bound = re.search(r"ISS-[0-9a-f]{16}", text)
+        if bound:
+            issue = self.app.db.get("issue", bound.group(0))
+            variables = [v for v in self.app.variables.list(sid) if v["kind"] in ("table", "chart", "text")]
+            evidence = list(dict.fromkeys([*issue.get("evidence", []), *(f"{v['name']} v{v['version']}：{v['description']}" for v in variables)]))
+            hypotheses = list(dict.fromkeys([*issue.get("hypotheses", []), *memory.get("hypotheses", [])]))
+            fields = {"evidence": evidence, "hypotheses": hypotheses}
+            if issue["status"] == "open" and variables:
+                fields["status"] = "investigating"
+            added = len(evidence) - len(issue.get("evidence", []))
+            return {"type": "issue", "issue_id": issue["id"], "fields": fields,
+                    "message": f"已将当前会话关联到问题 **{{issue_id}}**，新增 {added} 项证据引用；措施、责任人、期限和关闭仍需在问题台账中确认。"}
         scope = memory.get("scope") or self.parse_scope(text)
         station = SCENARIO["stations"].get(scope["station"], {"label": "过程参数"})
         variables = [v for v in self.app.variables.list(sid) if v["kind"] in ("table", "chart", "text")]

@@ -2,16 +2,17 @@
 from __future__ import annotations
 import asyncio
 import json
+import re
 from collections import deque
 from ..storage.database import now, uid
 from . import prompts
 from .demo_engine import DemoEngine
-from .host import TOOLS
 from .plans import PlanDraft, fingerprint
 
 DEFAULT_TITLE = "新的工程分析"
 RESUMABLE = {"interrupted", "cancelled", "blocked", "failed"}
 FIRST_PERSON = ("我们", "我")
+TYPED_APPROVAL = re.compile(r"^\s*(ok|okay|好的?|可以|行|确认|同意|批准|没问题|开始(执行|分析)?|执行吧?)\s*[。.!！]*\s*$", re.I)
 
 
 class Conflict(ValueError):
@@ -81,6 +82,7 @@ class Orchestrator:
         self.background: set[asyncio.Task] = set()
         self.scheduler = Scheduler(lambda: int(app.settings.values.get("max_parallel_sessions", 2)))
         self.demo = DemoEngine(app)
+        self.stopping = False
 
     # ---- session state -------------------------------------------------
     def create_session(self, title=None):
@@ -159,10 +161,16 @@ class Orchestrator:
         message = self.app.db.message(sid, "user", content)
         if session["title"] == DEFAULT_TITLE:
             self.app.db.patch("session", sid, title=content[:40])
+        pending = self.app.active_plan(sid)
         if self.busy(sid):
             task = asyncio.create_task(self._follow_up(sid, content))
             self.background.add(task)
             task.add_done_callback(self.background.discard)
+        elif pending and pending["status"] == "awaiting_approval" and TYPED_APPROVAL.match(content):
+            # Approval is bound to session + plan + revision via the plan card, never free text.
+            self.say(sid, f"计划“{pending['title']}”第 {pending['revision']} 版待确认。为避免误批旧版本或其他会话的计划，"
+                          "请在该计划卡片上点击“确认并开始分析”；如需调整范围，可直接说明调整内容。")
+            self.settle(sid)
         else:
             self.status(sid, "planning")
             self.spawn(sid, self._route(sid, content))
@@ -176,7 +184,8 @@ class Orchestrator:
                 decision = await self._live_route(sid, content)
             await self._apply(sid, decision, content)
         except asyncio.CancelledError:
-            self.app.db.event(sid, "已按要求停止本轮请求的处理。", "run", "cancelled")
+            if not self.stopping:
+                self.app.db.event(sid, "已按要求停止本轮请求的处理。", "run", "cancelled")
             self.settle(sid)
         except Exception as exc:
             self.app.db.event(sid, "请求未能形成可执行的分析步骤，已记录原因。", "error", "failed", {"error": str(exc)})
@@ -203,10 +212,14 @@ class Orchestrator:
             run = self._new_run(sid, nodes=decision["nodes"], kind="direct", request=content, origin=decision.get("origin", "model"))
             self._start(sid, run)
         elif kind == "issue":
-            issue = self.app.create_issue(decision["title"], decision.get("description", ""), sid, station=decision.get("station", ""))
-            if decision.get("fields"):
-                issue = self.app.update_issue(issue["id"], decision["fields"], session_id=sid)
-            self.app.db.event(sid, f"已在问题台账登记 {issue['id']}，后续证据和措施可关联到该编号。", "issue", "completed", {"issue": issue})
+            if decision.get("issue_id"):
+                issue = self.app.update_issue(decision["issue_id"], decision.get("fields") or {}, session_id=sid)
+                self.app.db.event(sid, f"已将本会话的证据与假设更新到问题 {issue['id']}，台账保留修改历史。", "issue", "completed", {"issue": issue})
+            else:
+                issue = self.app.create_issue(decision["title"], decision.get("description", ""), sid, station=decision.get("station", ""))
+                if decision.get("fields"):
+                    issue = self.app.update_issue(issue["id"], decision["fields"], session_id=sid)
+                self.app.db.event(sid, f"已在问题台账登记 {issue['id']}，后续证据和措施可关联到该编号。", "issue", "completed", {"issue": issue})
             self.say(sid, decision["message"].format(issue_id=issue["id"]))
             self.settle(sid)
         else:
@@ -254,7 +267,7 @@ class Orchestrator:
         for node in validated["nodes"]:
             if node["kind"] == "skill" and node["skill"] not in skills:
                 raise ValueError(f"计划引用了未注册的技能：{node['skill']}")
-            if node["kind"] == "tool" and node["tool"] not in TOOLS:
+            if node["kind"] == "tool" and node["tool"] not in app.host.tools():
                 raise ValueError(f"计划引用了未注册的工具：{node['tool']}")
             node["progress_message"] = sentence(node["progress_message"], f"为{node['expected_output'] or node['title']}，正在{node['title']}。")
         for pending in app.plans(sid):
@@ -298,6 +311,8 @@ class Orchestrator:
         except ValueError as exc:
             raise Conflict(str(exc)) from None
         plan = self.app.db.patch("plan", f"{plan['id']}@{plan['revision']}", status="approved", approved_at=now())
+        self.remember(sid, approved_plan={"id": plan["id"], "revision": plan["revision"], "title": plan["title"], "stage": plan["stage"],
+                                          "fingerprint": plan["fingerprint"], "scope": plan.get("scope")})
         run = self._new_run(sid, plan=plan)
         self._start(sid, run)
         return run
@@ -398,6 +413,16 @@ class Orchestrator:
             self._plan_status(run, "completed")
             await self._review(sid, run, plan, proposed)
         except asyncio.CancelledError:
+            if self.stopping:
+                # Application shutdown is not a user stop: keep the checkpoint resumable.
+                if node:
+                    self._node_state(run_id, node["id"], status="interrupted")
+                    app.db.event(sid, "本步因应用关闭未完成，未发布部分结果。", "step", "interrupted", run_id=run_id, node_id=node["id"])
+                run = app.db.patch("run", run_id, status="interrupted")
+                self._plan_status(run, "interrupted")
+                app.db.event(sid, "应用关闭时任务尚未完成，已在最近检查点暂停；重新启动后从检查点继续，不重跑已完成步骤。", "run", "interrupted", run_id=run_id)
+                self.status(sid, "interrupted")
+                return
             if node:
                 self._node_state(run_id, node["id"], status="cancelled")
                 app.db.event(sid, "当前步骤已停止，未完成的查询或计算不会发布结果。", "step", "cancelled", run_id=run_id, node_id=node["id"])
@@ -537,9 +562,21 @@ class Orchestrator:
         self._start(sid, run)
         return run
 
+    async def shutdown(self):
+        """Stop for application exit; running work is checkpointed as interrupted, not user-cancelled."""
+        self.stopping = True
+        tasks = [task for task in [*self.tasks.values(), *self.background] if not task.done()]
+        for sid in list(self.tasks):
+            self.app.runner.kill(sid)
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
     def recover(self):
-        """After restart: interrupt unfinished runs at their checkpoint; stopped tasks stay stopped."""
+        """After restart: interrupt unfinished runs at their checkpoint and resume them
+        (setting resume_on_restart); tasks the user stopped stay stopped."""
         app = self.app
+        self.stopping = False
         interrupted = set()
         for run in app.db.all("run"):
             if run["status"] in ("running", "queued"):
@@ -554,6 +591,18 @@ class Orchestrator:
         for session in app.db.all("session"):
             if session["id"] not in interrupted and session["status"] in ("planning", "running", "queued"):
                 self.settle(session["id"])
+        if not app.settings.values.get("resume_on_restart", True):
+            return []
+        resumed = []
+        for session in app.db.all("session"):
+            runs = self.session_runs(session["id"])
+            if session["status"] == "interrupted" and runs and runs[-1]["status"] == "interrupted":
+                try:
+                    self.resume(session["id"])
+                    resumed.append(session["id"])
+                except Conflict as exc:
+                    app.db.event(session["id"], f"重启后未自动恢复：{exc}", "run", "interrupted")
+        return resumed
 
     # ---- live model ----------------------------------------------------
     def model_context(self, sid):

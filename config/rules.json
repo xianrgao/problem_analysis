@@ -1,0 +1,36 @@
+{
+  "timezone": "Asia/Shanghai",
+  "shift_start_hour": 7,
+  "shift_hours": 12,
+  "startup_window_minutes": 60,
+  "exit_station": "OP30",
+  "normal_shift_output": 700,
+  "trial_threshold": 100,
+  "stopped_threshold": 5,
+  "long_dwell_hours": 4,
+  "concentration_threshold": 0.8,
+  "component_parameters": {
+    "轴承": ["PeakForce"],
+    "螺栓": ["FinalTorque"]
+  },
+  "curve_profiles": {
+    "press": {
+      "label": "压装力—位移",
+      "x_label": "位移",
+      "x_unit": "mm",
+      "y_label": "压装力",
+      "y_unit": "kN",
+      "phases": ["loading"],
+      "contact_threshold": 0.05
+    },
+    "torque": {
+      "label": "扭矩—角度",
+      "x_label": "角度",
+      "x_unit": "deg",
+      "y_label": "扭矩",
+      "y_unit": "N·m",
+      "phases": ["loading"],
+      "contact_threshold": 0.05
+    }
+  }
+}

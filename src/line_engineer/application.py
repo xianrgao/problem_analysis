@@ -1,7 +1,9 @@
 """Application container: wires storage, skills, connectors, execution and orchestration."""
 from __future__ import annotations
+import importlib
 import io
 import re
+import sys
 from pathlib import Path
 import pandas as pd
 from .config import Settings
@@ -21,17 +23,31 @@ ISSUE_FIELDS = ("title", "description", "station", "owner", "due_date", "status"
 class Application:
     def __init__(self, data_dir: Path | None = None, demo_days: int = 90):
         self.settings = Settings(data_dir)
+        # Company adapters configured as "module:function" may live in the project root.
+        if str(self.settings.root) not in sys.path:
+            sys.path.append(str(self.settings.root))
         data = self.settings.data_dir
         self.db = Database(data / "app.sqlite")
         self.variables = VariableStore(self.db, data / "variables")
         self.registry = SkillRegistry(self.settings.root / "skills", data / "skill_snapshots")
         self.model = ModelClient(self.settings)
-        self.runner = ProcessRunner(self.settings, self.variables)
+        self.runner = self.make_runner()
         self.host = Host(self)
         self.demo_dir = data / "demo"
         self.demo_days = demo_days
         self.manifest: dict | None = None
         self.orchestrator = Orchestrator(self)
+
+    def make_runner(self):
+        """Default process runner, replaceable by a company isolation environment."""
+        factory = (self.settings.values.get("executor") or {}).get("factory")
+        if not factory:
+            return ProcessRunner(self.settings, self.variables)
+        module, name = factory.split(":", 1)
+        return getattr(importlib.import_module(module), name)(self.settings, self.variables)
+
+    def rules(self):
+        return self.settings.rules()
 
     def prepare_demo(self):
         self.manifest = generate_demo(self.demo_dir, days=self.demo_days)

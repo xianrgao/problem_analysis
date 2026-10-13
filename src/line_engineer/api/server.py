@@ -55,8 +55,7 @@ def create_app(application: Application | None = None, static_dir: Path | None =
         await asyncio.to_thread(app_state.prepare_demo)
         app_state.orchestrator.recover()
         yield
-        for task in list(app_state.orchestrator.tasks.values()):
-            task.cancel()
+        await app_state.orchestrator.shutdown()
 
     api = FastAPI(title="LINEA 产线硅基工程师", version=__version__, lifespan=lifespan)
     api.state.app = app_state

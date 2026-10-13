@@ -44,14 +44,17 @@ def make_chart(df: pd.DataFrame, kind: str = "auto", x: str | None = None, y: st
     return _json(figure)
 
 
-def analyze_curves(df: pd.DataFrame, alignment: str = "start", reference_group: str = "OK") -> dict:
+def analyze_curves(df: pd.DataFrame, alignment: str = "start", reference_group: str = "OK", profiles: dict | None = None) -> dict:
     """Analyze original curves independently by kind and phase.
 
     Input: curve_id,x,y,x_unit,y_unit; optional sample_index,kind,phase,result,
     tg,batch,supplier. Non-monotonic travel must have explicit phase labels.
-    'contact' uses each curve's first sample >=5% of its positive peak.
+    'contact' uses each curve's first sample >= the profile contact_threshold
+    (default 5%) of its positive peak. Profiles (config curve_profiles) fix the
+    axis meaning, units and phases per curve kind; mismatches are rejected.
     A reference envelope is empirical 5th/95th percentile, never specification.
     """
+    profiles = profiles or {}
     if alignment not in {"start", "contact", "none"}:
         raise ValueError("alignment 仅支持 start、contact、none")
     if df.empty:
@@ -84,6 +87,15 @@ def analyze_curves(df: pd.DataFrame, alignment: str = "start", reference_group: 
         if subset["x_unit"].nunique() != 1 or subset["y_unit"].nunique() != 1:
             raise ValueError(f"{kind}/{phase} 存在单位冲突，请先显式转换单位后再分析")
         x_unit, y_unit = subset["x_unit"].iloc[0], subset["y_unit"].iloc[0]
+        profile = profiles.get(kind) or {}
+        for axis, unit in (("x_unit", x_unit), ("y_unit", y_unit)):
+            if profile.get(axis) and profile[axis] != unit:
+                raise ValueError(f"{kind}/{phase} 的 {axis}={unit} 与曲线配置“{profile.get('label', kind)}”要求的 {profile[axis]} 不一致，请先显式转换单位")
+        if profile.get("phases") and phase not in profile["phases"]:
+            warnings.append(f"{kind} 的阶段 {phase} 未在曲线配置中声明，已单独分析，未与已声明阶段合并。")
+        threshold = float(profile.get("contact_threshold", .05))
+        x_title = f"{profile['x_label']}（{x_unit}）" if profile.get("x_label") else x_unit
+        y_title = f"{profile['y_label']}（{y_unit}）" if profile.get("y_label") else y_unit
         raw_fig, aligned_fig = go.Figure(), go.Figure()
         candidates = []
         for curve_id, points in subset.groupby("curve_id", sort=False):
@@ -109,7 +121,7 @@ def analyze_curves(df: pd.DataFrame, alignment: str = "start", reference_group: 
                 if y.max() <= 0:
                     warnings.append(f"{curve_id} 不存在正向接触阈值，未纳入接触点对齐。")
                     continue
-                contact = np.flatnonzero(y >= .05 * y.max())
+                contact = np.flatnonzero(y >= threshold * y.max())
                 anchor = x[int(contact[0])]
             aligned_x = x - anchor
             # Mean duplicate x values only for interpolation; raw path is retained.
@@ -124,8 +136,8 @@ def analyze_curves(df: pd.DataFrame, alignment: str = "start", reference_group: 
                 raw_fig.add_trace(go.Scatter(x=x, y=y, mode="lines", name=f"{curve_id} · {metadata.get('result','')}", line={"color": color, "width": 1.2}, opacity=.4, showlegend=False))
                 aligned_fig.add_trace(go.Scatter(x=aligned_x, y=y, mode="lines", name=f"{curve_id} · {metadata.get('result','')}", line={"color": color, "width": 1.2}, opacity=.4, showlegend=False))
         key = f"{kind}_{phase}"
-        raw_fig.update_layout(title=f"{kind} / {phase} · 原始曲线", xaxis_title=x_unit, yaxis_title=y_unit)
-        aligned_fig.update_layout(title=f"{kind} / {phase} · {alignment} 对齐", xaxis_title=x_unit, yaxis_title=y_unit)
+        raw_fig.update_layout(title=f"{kind} / {phase} · 原始曲线", xaxis_title=x_title, yaxis_title=y_title)
+        aligned_fig.update_layout(title=f"{kind} / {phase} · {alignment} 对齐", xaxis_title=x_title, yaxis_title=y_title)
         figures[f"{key}_raw"] = _json(raw_fig)
         if not candidates:
             continue

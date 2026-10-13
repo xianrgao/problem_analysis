@@ -32,6 +32,7 @@ class Database:
             CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY AUTOINCREMENT,
                 session_id TEXT NOT NULL, data TEXT NOT NULL);
             CREATE INDEX IF NOT EXISTS events_session ON events(session_id,id);
+            CREATE INDEX IF NOT EXISTS messages_session ON messages(session_id,role);
             CREATE TABLE IF NOT EXISTS variables(session_id TEXT,name TEXT,version INTEGER,
                 data TEXT NOT NULL,PRIMARY KEY(session_id,name,version));
             CREATE INDEX IF NOT EXISTS variables_session ON variables(session_id,name,version);
@@ -71,12 +72,13 @@ class Database:
 
     def messages(self, session_id):
         with self.lock:
-            return [dict(r) for r in self.connection.execute("SELECT id,role,content,created_at FROM messages WHERE session_id=? ORDER BY rowid", (session_id,))]
+            return [dict(r) for r in self.connection.execute("SELECT id,role,content,created_at,SUM(role='user') OVER (ORDER BY rowid) AS turn FROM messages WHERE session_id=? ORDER BY rowid", (session_id,))]
 
     def event(self, session_id, message, kind="progress", status="running", details=None, run_id=None, node_id=None):
-        value = {"session_id": session_id, "run_id": run_id, "node_id": node_id, "kind": kind,
-                 "status": status, "message": message, "details": details or {}, "created_at": now()}
         with self.lock, self.connection:
+            turn = self.connection.execute("SELECT COUNT(*) FROM messages WHERE session_id=? AND role='user'", (session_id,)).fetchone()[0]
+            value = {"session_id": session_id, "turn": turn, "run_id": run_id, "node_id": node_id, "kind": kind,
+                     "status": status, "message": message, "details": details or {}, "created_at": now()}
             cursor = self.connection.execute("INSERT INTO events(session_id,data) VALUES(?,?)", (session_id, json.dumps(value, ensure_ascii=False, default=str)))
             value["id"] = cursor.lastrowid
         return value
