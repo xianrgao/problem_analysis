@@ -1,0 +1,47 @@
+{
+  "cases": [
+    {
+      "id": "op20-bindings-and-changes",
+      "request": "查询不良工件的轴承首次绑定以及 OP20 近两个月的变化点",
+      "inputs": [
+        "nc_records"
+      ],
+      "expect": {
+        "outputs": [
+          {
+            "name": "first_bindings",
+            "kind": "table",
+            "columns": [
+              "tg",
+              "component",
+              "pn",
+              "position",
+              "batch",
+              "supplier",
+              "bound_at",
+              "event_id"
+            ]
+          },
+          {
+            "name": "equipment_changes",
+            "kind": "table",
+            "columns": [
+              "station_id",
+              "structure",
+              "change_type",
+              "occurred_at",
+              "message"
+            ]
+          }
+        ],
+        "must_mention": [
+          "日志覆盖范围"
+        ],
+        "must_not_claim": [
+          "设备没有变化",
+          "必须更换备件"
+        ]
+      }
+    }
+  ]
+}

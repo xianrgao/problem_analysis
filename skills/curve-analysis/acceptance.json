@@ -1,0 +1,49 @@
+{
+  "cases": [
+    {
+      "id": "op20-press-curves",
+      "request": "对比 OP20 合格件与不良件的压装曲线",
+      "expect": {
+        "outputs": [
+          {
+            "name": "process_curves",
+            "kind": "table",
+            "columns": [
+              "curve_id",
+              "tg",
+              "kind",
+              "phase",
+              "x",
+              "y",
+              "x_unit",
+              "y_unit",
+              "result"
+            ]
+          },
+          {
+            "name": "curve_features",
+            "kind": "table",
+            "columns": [
+              "curve_id",
+              "peak",
+              "peak_x",
+              "end_value",
+              "max_slope",
+              "fluctuation"
+            ]
+          },
+          {
+            "name": "curve_findings",
+            "kind": "json"
+          }
+        ],
+        "must_mention": [
+          "参考范围为探索性统计，非工艺规格"
+        ],
+        "must_not_claim": [
+          "超出工艺规格"
+        ]
+      }
+    }
+  ]
+}

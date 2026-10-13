@@ -116,3 +116,29 @@ class DemoSplunk:
             # Omit date filters to obtain original lifetime binding for a TG.
             frame = frame.sort_values(["bound_at", "event_id"], kind="stable").drop_duplicates(["tg", "component", "position"], keep="first")
         return frame.reset_index(drop=True)
+
+
+class DemoCurves:
+    """Separate process-curve store in long format; filters are explicit."""
+
+    def __init__(self, data_dir: Path):
+        self.path = Path(data_dir) / "curves.parquet"
+
+    def query(self, filters: dict | None = None) -> pd.DataFrame:
+        if not self.path.exists():
+            raise FileNotFoundError(f"模拟曲线尚未初始化：{self.path}")
+        filters = dict(filters or {})
+        allowed = {"tg", "tgs", "station_id", "kind", "phase", "result", "batch", "supplier", "start", "end"}
+        unknown = set(filters) - allowed
+        if unknown:
+            raise SourceQueryError(f"不支持的曲线筛选项：{', '.join(sorted(unknown))}")
+        frame = pd.read_parquet(self.path)
+        for key in ["tg", "tgs", "station_id", "kind", "phase", "result", "batch", "supplier"]:
+            if key in filters:
+                value = filters[key]
+                frame = frame[frame["tg" if key == "tgs" else key].isin(value if isinstance(value, (list, tuple, set)) else [value])]
+        if filters.get("start"):
+            frame = frame[frame["occurred_at"] >= str(filters["start"])]
+        if filters.get("end"):
+            frame = frame[frame["occurred_at"] < str(filters["end"])]
+        return frame.reset_index(drop=True)

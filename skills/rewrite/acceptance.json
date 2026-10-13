@@ -1,0 +1,32 @@
+{
+  "cases": [
+    {
+      "id": "first-binding-writeback",
+      "request": "把首次绑定的批次和供应商写回 NC 明细",
+      "inputs": [
+        "nc_records",
+        "first_bindings"
+      ],
+      "expect": {
+        "outputs": [
+          {
+            "name": "nc_records",
+            "kind": "table",
+            "columns": [
+              "nc_id",
+              "tg",
+              "binding_matched"
+            ]
+          }
+        ],
+        "must_mention": [
+          "原 NC 行数不变",
+          "未匹配记录保留为空"
+        ],
+        "must_not_claim": [
+          "删除未匹配记录"
+        ]
+      }
+    }
+  ]
+}

@@ -9,6 +9,8 @@ from .sdk import ExecutionContext
 def main():
     request = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
     ctx = ExecutionContext(request["inputs"], request["output_dir"])
+    # Appended so skill scripts never shadow standard or installed modules.
+    sys.path.extend(request.get("scripts") or [])
     response = {"ok": False, "outputs": [], "reads": []}
     try:
         code = Path(request["code_path"]).read_text(encoding="utf-8")

@@ -6,7 +6,7 @@ from pathlib import Path
 import pandas as pd
 from plotly.utils import PlotlyJSONEncoder
 from .database import Database, now
-from .preview import make_preview, records
+from .preview import make_preview, records, unavailable_preview
 
 
 class VariableStore:
@@ -58,7 +58,10 @@ class VariableStore:
                     if value.columns.duplicated().any():
                         raise ValueError("表格包含重复列名，请为 JOIN 输出设置不同别名")
                     value.to_parquet(path, index=False)
-                    preview = make_preview(value, name, version)
+                    try:
+                        preview = make_preview(value, name, version)
+                    except Exception as exc:
+                        preview = unavailable_preview(value, name, version, exc)
                     preview_path = directory / "preview.json"
                     preview_path.write_text(json.dumps(preview, ensure_ascii=False), encoding="utf-8")
                 else:
@@ -66,6 +69,7 @@ class VariableStore:
                 meta = {"name": name, "version": version, "kind": kind, "description": description,
                         "path": str(path), "row_count": len(value) if kind == "table" else None,
                         "columns": list(value.columns) if kind == "table" else [], "metadata": metadata or {},
+                        "preview_available": preview["available"] if kind == "table" else None,
                         "producer": producer, "parents": parents or [], "created_at": now()}
                 with self.db.connection:
                     self.db.connection.execute("INSERT INTO variables VALUES(?,?,?,?)", (session_id, name, version, json.dumps(meta, ensure_ascii=False)))
@@ -75,7 +79,8 @@ class VariableStore:
             except Exception:
                 shutil.rmtree(directory)
                 raise
-        self.db.event(session_id, f"已保存 {description}，数据版本与预览已同步更新。", "variable", "succeeded", {"variable": self.public(meta)})
+        note = "预览生成失败并已标记为不可用" if meta["preview_available"] is False else "数据版本与预览已同步更新"
+        self.db.event(session_id, f"已保存 {description}，{note}。", "variable", "succeeded", {"variable": self.public(meta)})
         return meta
 
     @staticmethod

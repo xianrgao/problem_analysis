@@ -1,0 +1,29 @@
+{
+  "cases": [
+    {
+      "id": "op20-two-stage",
+      "request": "分析 OP20 最近两周压装力 NC 增多的原因",
+      "expect": {
+        "outputs": [
+          {
+            "name": "pattern_review",
+            "kind": "text"
+          },
+          {
+            "name": "investigation_conclusion",
+            "kind": "text"
+          }
+        ],
+        "must_mention": [
+          "不良工件数与 NC 事件数分别统计",
+          "深入验证计划需确认后执行",
+          "尚未确认根因"
+        ],
+        "must_not_claim": [
+          "已确认根因",
+          "排除设备"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "mode": "live",
+  "model": {
+    "driver": "openai",
+    "base_url": "https://company-model-gateway.example/v1",
+    "model": "company-chat-model",
+    "timeout": 120
+  },
+  "connectors": {
+    "mos": {"driver": "python", "callable": "examples.adapters.mos_agent:query"},
+    "splunk": {"driver": "python", "callable": "examples.adapters.splunk_agent:query"},
+    "curves": {"driver": "script", "python": "C:/Tools/curve-env/python.exe", "script": "C:/Tools/curves/export_curves.py", "timeout": 300},
+    "charts": {"driver": "python", "callable": "examples.adapters.chart_program:render"}
+  },
+  "executor": {"python": "", "factory": ""},
+  "max_parallel_sessions": 2,
+  "execution_timeout": 180,
+  "max_skill_turns": 24,
+  "resume_on_restart": true,
+  "rules": {
+    "exit_station": "OP30",
+    "long_dwell_hours": 4
+  }
+}

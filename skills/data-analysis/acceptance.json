@@ -1,0 +1,69 @@
+{
+  "cases": [
+    {
+      "id": "op20-patterns",
+      "request": "统计 OP20 不良工件的开班、班产、滞留、趋势和批次集中度",
+      "inputs": [
+        "nc_records",
+        "visit_records",
+        "measurement_trend",
+        "first_bindings"
+      ],
+      "expect": {
+        "outputs": [
+          {
+            "name": "startup_distribution",
+            "kind": "table",
+            "columns": [
+              "shift",
+              "startup",
+              "nc_pieces"
+            ]
+          },
+          {
+            "name": "shift_output",
+            "kind": "table",
+            "columns": [
+              "shift_start",
+              "output",
+              "classification",
+              "previous_output"
+            ]
+          },
+          {
+            "name": "daily_trend",
+            "kind": "table",
+            "columns": [
+              "date",
+              "parameter",
+              "tested_pieces",
+              "nc_pieces",
+              "nc_rate"
+            ]
+          },
+          {
+            "name": "batch_concentration",
+            "kind": "table",
+            "columns": [
+              "group",
+              "nc_pieces",
+              "nc_share",
+              "component",
+              "dimension"
+            ]
+          },
+          {
+            "name": "pattern_findings",
+            "kind": "json"
+          }
+        ],
+        "must_mention": [
+          "集中度不代表风险更高"
+        ],
+        "must_not_claim": [
+          "已确认根因"
+        ]
+      }
+    }
+  ]
+}

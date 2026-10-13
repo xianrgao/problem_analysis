@@ -1,0 +1,30 @@
+{
+  "cases": [
+    {
+      "id": "parse-bearing-batches",
+      "request": "解析首次绑定中的轴承批次号并列出无法识别的编码",
+      "inputs": [
+        "first_bindings"
+      ],
+      "expect": {
+        "outputs": [
+          {
+            "name": "parsed_batches",
+            "kind": "table",
+            "columns": [
+              "raw_batch",
+              "parse_status",
+              "rule_id"
+            ]
+          }
+        ],
+        "must_mention": [
+          "无法识别的编码保留原值"
+        ],
+        "must_not_claim": [
+          "推断供应商"
+        ]
+      }
+    }
+  ]
+}

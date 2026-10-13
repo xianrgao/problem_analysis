@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 
-DEFAULT_CONFIG = {"timezone": "Asia/Shanghai", "exit_station": "OP30", "normal_shift_output": 700, "trial_threshold": 100, "stopped_threshold": 5, "long_dwell_hours": 4, "concentration_threshold": .8, "component_parameters": {"轴承": ["PeakForce"], "螺栓": ["FinalTorque"]}}
+DEFAULT_CONFIG = {"timezone": "Asia/Shanghai", "shift_start_hour": 7, "shift_hours": 12, "startup_window_minutes": 60, "exit_station": "OP30", "normal_shift_output": 700, "trial_threshold": 100, "stopped_threshold": 5, "long_dwell_hours": 4, "concentration_threshold": .8, "component_parameters": {"轴承": ["PeakForce"], "螺栓": ["FinalTorque"]}}
 
 
 def _times(series: pd.Series, timezone: str = "Asia/Shanghai") -> pd.Series:
@@ -17,10 +17,10 @@ def _times(series: pd.Series, timezone: str = "Asia/Shanghai") -> pd.Series:
     return values
 
 
-def shift_start(series: pd.Series, timezone: str = "Asia/Shanghai") -> pd.Series:
-    """07:00/19:00 inclusive starts; pre-07:00 belongs to previous night."""
+def shift_start(series: pd.Series, timezone: str = "Asia/Shanghai", start_hour: int = 7, shift_hours: int = 12) -> pd.Series:
+    """Inclusive shift starts (default 07:00/19:00); pre-07:00 belongs to previous night."""
     values = _times(series, timezone)
-    return (values - pd.Timedelta(hours=7)).dt.floor("12h") + pd.Timedelta(hours=7)
+    return (values - pd.Timedelta(hours=start_hour)).dt.floor(f"{shift_hours}h") + pd.Timedelta(hours=start_hour)
 
 
 def first_bindings(bindings: pd.DataFrame) -> pd.DataFrame:
@@ -120,12 +120,12 @@ def analyze_nc(nc: pd.DataFrame, visits: pd.DataFrame, measurements: pd.DataFram
     if launch in frame:
         pieces = frame[["tg", launch]].drop_duplicates("tg").copy()
         pieces[launch] = _times(pieces[launch], cfg["timezone"])
-        pieces["shift_start"] = shift_start(pieces[launch], cfg["timezone"])
-        pieces["startup"] = (pieces[launch] - pieces["shift_start"]).dt.total_seconds().between(0, 3599.999)
-        pieces["shift"] = np.where(pieces["shift_start"].dt.hour == 7, "白班", "夜班")
+        pieces["shift_start"] = shift_start(pieces[launch], cfg["timezone"], cfg["shift_start_hour"], cfg["shift_hours"])
+        pieces["startup"] = (pieces[launch] - pieces["shift_start"]).dt.total_seconds().between(0, cfg["startup_window_minutes"] * 60 - 0.001)
+        pieces["shift"] = np.where(pieces["shift_start"].dt.hour == cfg["shift_start_hour"], "白班", "夜班")
         tables["startup_distribution"] = pieces.groupby(["shift", "startup"], dropna=False).agg(nc_pieces=("tg", "nunique")).reset_index()
         startup_count = int(pieces["startup"].sum())
-        findings.append(f"不良工件中 {startup_count:,} 件在开班首小时上线，占 {startup_count/max(1,nc_count):.1%}；需结合各时段投入量判断风险。")
+        findings.append(f"不良工件中 {startup_count:,} 件在开班首 {cfg['startup_window_minutes']} 分钟内上线，占 {startup_count/max(1,nc_count):.1%}；需结合各时段投入量判断风险。")
     else:
         pieces = pd.DataFrame()
         warnings.append("缺少上线/过站时间，未生成开班分析。")
@@ -144,10 +144,10 @@ def analyze_nc(nc: pd.DataFrame, visits: pd.DataFrame, measurements: pd.DataFram
             warnings.append("部分过站记录时间重叠，已保留原始时间；负间隔未计入滞留。")
         findings.append(f"发现 {long_dwell['tg'].nunique():,} 件不良工件存在跨工站间隔超过 {cfg['long_dwell_hours']} 小时，需结合停线和返工记录核实。")
         output = flow[flow["station_id"] == cfg["exit_station"]].copy()
-        output["shift_start"] = shift_start(output["exited_at"], cfg["timezone"])
+        output["shift_start"] = shift_start(output["exited_at"], cfg["timezone"], cfg["shift_start_hour"], cfg["shift_hours"])
         if not output.empty:
             counts = output.groupby("shift_start")["tg"].nunique()
-            counts = counts.reindex(pd.date_range(counts.index.min(), counts.index.max(), freq="12h"), fill_value=0)
+            counts = counts.reindex(pd.date_range(counts.index.min(), counts.index.max(), freq=f"{cfg['shift_hours']}h"), fill_value=0)
             shifts = counts.rename_axis("shift_start").reset_index(name="output")
             shifts["classification"] = np.select([shifts["output"] < cfg["stopped_threshold"], shifts["output"] < cfg["trial_threshold"], shifts["output"] < cfg["normal_shift_output"]], ["停产", "验线", "未达正常阈值"], default="正常")
             shifts["previous_output"] = shifts["output"].shift(1)
