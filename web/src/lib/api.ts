@@ -20,7 +20,7 @@ export const api = {
   cancel: (id: string) => request(`${sid(id)}/cancel`, { method: 'POST' }),
   resume: (id: string) => request(`${sid(id)}/resume`, { method: 'POST' }),
   streamUrl: (id: string) => `/api${sid(id)}/stream`,
-  table: (id: string, name: string, offset = 0, search = '', sort = '', direction = 'asc', version?: number) => request<TableData>(`${variable(id, name)}/table?${new URLSearchParams({ offset: String(offset), limit: '40', search, sort, direction, ...(version ? { version: String(version) } : {}) })}`),
+  table: (id: string, name: string, offset = 0, search = '', sort = '', direction = 'asc', version?: number, limit = 40) => request<TableData>(`${variable(id, name)}/table?${new URLSearchParams({ offset: String(offset), limit: String(limit), search, sort, direction, ...(version ? { version: String(version) } : {}) })}`),
   preview: (id: string, name: string, version?: number) => request<TableData>(`${variable(id, name)}/preview${version ? `?version=${version}` : ''}`),
   value: (id: string, name: string) => request<unknown>(`${variable(id, name)}/value`),
   exportUrl: (id: string, name: string, format = 'csv') => `/api${variable(id, name)}/export?format=${format}`,
@@ -30,6 +30,6 @@ export const api = {
   createIssue: (input: { title: string; description?: string; session_id?: string; owner?: string; due_date?: string }) => request<Issue>('/issues', { method: 'POST', body: body(input) }),
   patchIssue: (id: string, patch: Partial<Issue> & { confirm_close?: boolean }) => request<Issue>(`/issues/${encodeURIComponent(id)}`, { method: 'PATCH', body: body(patch) }),
   settings: () => request<Settings>('/settings'),
-  updateSettings: (settings: Settings) => request<Settings>('/settings', { method: 'PATCH', body: body(settings) }),
+  updateSettings: (settings: Partial<Settings>) => request<Settings>('/settings', { method: 'PATCH', body: body(settings) }),
   skills: () => request<Skill[]>('/skills'),
 };

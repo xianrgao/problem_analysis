@@ -39,8 +39,9 @@ function VariablePreview({ sessionId, variable }: { sessionId: string; variable:
   if (variable.kind !== 'table') return null;
   if (error) return <div className="inline-error">{error}</div>;
   if (!data) return <div className="artifact-loading"><span className="pulse-dot"/>正在读取预览…</div>;
+  if (data.available === false) return <div className="inline-error">第 {data.source_version} 版预览生成失败，已标记为不可用：{data.error}</div>;
   const columns = data.columns.map(column => typeof column === 'string' ? column : column.name);
-  return <div className="detail-preview"><small>代表性预览 {data.rows.length} 行 / 共 {(data.total_rows ?? variable.row_count ?? 0).toLocaleString()} 行</small><div className="table-scroll"><table><thead><tr>{columns.map(column => <th key={column}>{column}</th>)}</tr></thead><tbody>{data.rows.slice(0, 40).map((row, index) => <tr key={index}>{columns.map(column => <td key={column} title={displayValue(row[column])}>{displayValue(row[column])}</td>)}</tr>)}</tbody></table></div></div>;
+  return <div className="detail-preview"><small>{data.complete ? '完整展示' : '代表性预览'} {data.rows.length} 行 / 共 {(data.total_rows ?? variable.row_count ?? 0).toLocaleString()} 行</small><div className="table-scroll"><table><thead><tr>{columns.map(column => <th key={column}>{column}</th>)}</tr></thead><tbody>{data.rows.slice(0, 40).map((row, index) => <tr key={index}>{columns.map(column => <td key={column} title={displayValue(row[column])}>{displayValue(row[column])}</td>)}</tr>)}</tbody></table></div></div>;
 }
 
 function DetailValue({ name, value, sessionId, onVariable }: { name: string; value: unknown; sessionId: string; onVariable: (name: string) => void }) {

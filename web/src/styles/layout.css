@@ -31,7 +31,7 @@
 .session-item.selected .session-open { color: var(--accent-strong); font-weight: 600; }
 .session-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 6px 0 9px; color: var(--text-2); font-size: var(--fs-sm); text-align: left; }
 .session-open > svg { color: var(--text-4); }
-.session-open span:not(.status) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-open > span:not(.status) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pin-indicator { color: var(--accent); }
 .session-menu-button { opacity: 0; margin-right: 4px; }
 .session-item:hover .session-menu-button, .session-item.selected .session-menu-button { opacity: 1; }
