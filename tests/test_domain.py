@@ -104,6 +104,21 @@ def test_high_nc_share_does_not_imply_higher_risk():
     assert "尚未确认根因" in result["summary"]
 
 
+def test_trend_denominator_is_same_day_tested_pieces():
+    # Day 1: 10 pieces tested, the NC piece retested twice. Day 2: output drops to 4 pieces, still one NC piece.
+    rows = [{"tg": f"D1-{i}", "parameter": "PeakForce", "result": "NC" if i == 0 else "OK", "occurred_at": "2026-10-01T09:00:00"} for i in range(10)]
+    rows.append({"tg": "D1-0", "parameter": "PeakForce", "result": "NC", "occurred_at": "2026-10-01T09:05:00"})
+    rows += [{"tg": f"D2-{i}", "parameter": "PeakForce", "result": "NC" if i == 0 else "OK", "occurred_at": "2026-10-02T09:00:00"} for i in range(4)]
+    measurements = pd.DataFrame(rows)
+    nc = measurements[measurements["result"].eq("NC")]
+    trend = analyze_nc(nc, pd.DataFrame(), measurements, pd.DataFrame())["tables"]["daily_trend"]
+    trend = trend.set_index(trend["date"].dt.day)
+    assert trend.loc[1, "tested_pieces"] == 10 and trend.loc[1, "nc_pieces"] == 1 and trend.loc[1, "nc_rate"] == pytest.approx(.1)
+    assert trend.loc[2, "nc_rate"] == pytest.approx(.25), "NC 件数不变但投入下降时不良率上升"
+    only_nc = analyze_nc(nc, pd.DataFrame(), nc, pd.DataFrame())
+    assert any("未包含合格记录" in w for w in only_nc["warnings"])
+
+
 def test_dwell_strict_four_hour_threshold():
     visits = pd.DataFrame([
         {"tg": "A", "station_id": "OP10", "entered_at": "2026-01-01 07:00", "exited_at": "2026-01-01 07:01"},
@@ -134,6 +149,18 @@ def test_curve_alignment_features_and_reference_not_spec():
     assert "非工艺规格" in output["summary"]
 
 
+def test_curve_abnormal_segment_is_located_where_nc_deviates():
+    x = np.linspace(0, 10, 101)
+    rows = []
+    for curve, scale, group in [("OK1", .98, "OK"), ("OK2", 1., "OK"), ("OK3", 1.02, "OK"), ("NC1", 1., "NC")]:
+        y = np.where((x >= 6) & (x <= 8), x + 3, x) if group == "NC" else x * scale
+        rows += [{"curve_id": curve, "sample_index": i, "x": xi, "y": yi, "x_unit": "mm", "y_unit": "kN", "kind": "press", "phase": "loading", "result": group}
+                 for i, (xi, yi) in enumerate(zip(x, y))]
+    segments = analyze_curves(pd.DataFrame(rows))["tables"]["abnormal_segments"]
+    assert segments["curve_id"].tolist() == ["NC1"], "只标记偏离的 NC 曲线的一个连续区段"
+    assert segments.iloc[0]["x_start"] == pytest.approx(6, abs=.15) and segments.iloc[0]["x_end"] == pytest.approx(8, abs=.15)
+
+
 def test_curve_units_and_roundtrip_must_not_be_mixed():
     data = curve_fixture()
     data.loc[0, "y_unit"] = "N"
@@ -143,6 +170,24 @@ def test_curve_units_and_roundtrip_must_not_be_mixed():
     data.loc[5, "x"] = -5
     with pytest.raises(ValueError, match="往返过程"):
         analyze_curves(data)
+
+
+def test_curve_profiles_fix_units_phases_and_contact_threshold():
+    profiles = {"press": {"label": "压装力—位移", "x_unit": "mm", "y_unit": "kN", "x_label": "位移", "y_label": "压装力", "phases": ["loading"], "contact_threshold": .5}}
+    output = analyze_curves(curve_fixture(), alignment="contact", profiles=profiles)
+    assert output["figures"]["press_loading_raw"]["layout"]["xaxis"]["title"]["text"] == "位移（mm）"
+    default = analyze_curves(curve_fixture(), alignment="contact")
+    assert not output["tables"]["aligned_curves"].equals(default["tables"]["aligned_curves"]), "接触阈值来自曲线配置"
+    with pytest.raises(ValueError, match="曲线配置"):
+        analyze_curves(curve_fixture(), profiles={"press": {**profiles["press"], "y_unit": "N"}})
+    data = curve_fixture().assign(phase="holding")
+    assert any("未在曲线配置中声明" in w for w in analyze_curves(data, profiles=profiles)["warnings"])
+
+
+def test_shift_rules_are_configurable():
+    times = pd.Series(["2026-01-01 07:30", "2026-01-01 08:30"])
+    assert shift_start(times).dt.hour.tolist() == [7, 7]
+    assert shift_start(times, start_hour=8, shift_hours=8).dt.strftime("%d %H").tolist() == ["01 00", "01 08"]
 
 
 def test_final_values_never_turn_into_fabricated_curves():
