@@ -1,0 +1,22 @@
+{
+  "cases": [
+    {
+      "id": "op20-component",
+      "request": "确认 PeakForce 对应的零件、PN、安装位置和首次绑定工站",
+      "expect": {
+        "outputs": [
+          {
+            "name": "process_knowledge",
+            "kind": "text"
+          }
+        ],
+        "must_mention": [
+          "资料来源"
+        ],
+        "must_not_claim": [
+          "所有工件都安装该零件"
+        ]
+      }
+    }
+  ]
+}

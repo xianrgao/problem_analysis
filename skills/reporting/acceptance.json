@@ -1,0 +1,23 @@
+{
+  "cases": [
+    {
+      "id": "offline-report",
+      "request": "生成离线分析报告",
+      "expect": {
+        "outputs": [
+          {
+            "name": "report_offline_example",
+            "kind": "report"
+          }
+        ],
+        "must_mention": [
+          "证据与数据版本"
+        ],
+        "must_not_claim": [
+          "已整改"
+        ]
+      }
+    }
+  ],
+  "note": "图表与报告变量名由宿主生成唯一后缀，验收时按类型和来源变量核对。"
+}

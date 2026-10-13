@@ -1,0 +1,26 @@
+{
+  "cases": [
+    {
+      "id": "trend-box",
+      "request": "把 daily_trend_chart 改成箱线图",
+      "inputs": [
+        "daily_trend"
+      ],
+      "expect": {
+        "outputs": [
+          {
+            "name": "chart_box_example",
+            "kind": "chart"
+          }
+        ],
+        "must_mention": [
+          "原图保留"
+        ],
+        "must_not_claim": [
+          "根因图"
+        ]
+      }
+    }
+  ],
+  "note": "图表与报告变量名由宿主生成唯一后缀，验收时按类型和来源变量核对。"
+}

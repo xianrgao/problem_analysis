@@ -24,4 +24,4 @@ metadata:
 
 - 生成代码前阅读 [references/python-contract.md](references/python-contract.md)。
 - 比较批次、供应商风险时阅读 [references/comparisons.md](references/comparisons.md)。
-- `scripts/grouped_quality.py` 提供经过粒度检查的分组不良率函数，可在宿主脚本机制中使用。
+- `scripts/grouped_quality.py` 提供经过粒度检查的分组不良率函数；本技能的 `python.execute` 中可直接 `from grouped_quality import grouped_quality`。

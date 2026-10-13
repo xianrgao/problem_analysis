@@ -1,0 +1,17 @@
+{
+  "cases": [
+    {
+      "id": "register-issue",
+      "request": "把本次调查登记到问题台账",
+      "expect": {
+        "outputs": [],
+        "must_mention": [
+          "关闭问题需人工确认"
+        ],
+        "must_not_claim": [
+          "问题已关闭"
+        ]
+      }
+    }
+  ]
+}

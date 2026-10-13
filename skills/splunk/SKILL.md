@@ -24,6 +24,6 @@ metadata:
 
 ## 从现有 agent 迁移
 
-代码适配由开发技能 `developer-skills/migrate-agent-tool` 完成。保持现有凭据来源、检索语法、分页／重试逻辑和验证过的查询能力；抽出函数或 JSON stdin/stdout 边界，在宿主侧发布变量，最终由本技能指导何时、如何调用。
+代码适配由开发技能 `.cursor/skills/migrate-agent-tool` 完成。保持现有凭据来源、检索语法、分页／重试逻辑和验证过的查询能力；抽出函数或 JSON stdin/stdout 边界，在宿主侧发布变量，最终由本技能指导何时、如何调用。
 
 本技能不持有凭据，不自动部署索引配置，不修改产线日志。

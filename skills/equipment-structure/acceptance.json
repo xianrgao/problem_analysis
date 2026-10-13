@@ -1,0 +1,22 @@
+{
+  "cases": [
+    {
+      "id": "op20-structures",
+      "request": "读取 OP20 设备结构资料并建立设备假设",
+      "expect": {
+        "outputs": [
+          {
+            "name": "equipment_knowledge_OP20",
+            "kind": "text"
+          }
+        ],
+        "must_mention": [
+          "资料提及不等于结构存在故障"
+        ],
+        "must_not_claim": [
+          "已确认设备故障"
+        ]
+      }
+    }
+  ]
+}
